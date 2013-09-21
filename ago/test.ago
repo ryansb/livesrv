@@ -1,0 +1,6 @@
+fmt := import("fmt")
+func greet(name) {
+    fmt.Println("Hello from inside an Agora function")
+    return "Hello, " + name + "!"
+}
+return greet("Agora")
