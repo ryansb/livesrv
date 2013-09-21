@@ -2,48 +2,22 @@ package main
 
 import (
 	"fmt"
+	"github.com/AeroNotix/wedge"
 	"github.com/PuerkitoBio/agora/compiler"
 	"github.com/PuerkitoBio/agora/runtime"
 	"github.com/PuerkitoBio/agora/runtime/stdlib"
-	"io"
+	"net/http"
 	"os"
-	"path"
-	"strings"
+	"time"
 )
 
-type AbsoluteResolver struct {
-	prefix string
-}
-
-func (r *AbsoluteResolver) Resolve(modPath string) (io.Reader, error) {
-	if r.prefix == "" {
-		fmt.Println("No path set. Using default")
-		r.prefix = os.Getenv("GOPATH") + "/src/github.com/PuerkitoBio/agora/runtime/stdlib/"
-	}
-
-	toOpen := path.Join(r.prefix, modPath)
-
-	if strings.HasPrefix(modPath, "./") {
-		curDir, _ := os.Getwd()
-		toOpen = path.Join(curDir, modPath)
-	}
-
-	f, err := os.Open(toOpen)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return f, nil
-
-}
-
-func main() {
-	fmt.Println("hey there, about to run some agora")
+func NewAgoraClosure(modPath string) func() string {
 	ctx := runtime.NewCtx(new(runtime.FileResolver), new(compiler.Compiler))
-	f, _ := os.Open("./ago/test.ago")
+	f, _ := os.Open(modPath)
 	defer f.Close()
-	ctx.Compiler.Compile("./ago/test.ago", f)
+
+	ctx.Compiler.Compile(modPath, f)
+
 	ctx.RegisterNativeModule(new(stdlib.FmtMod))
 	ctx.RegisterNativeModule(new(stdlib.FilepathMod))
 	ctx.RegisterNativeModule(new(stdlib.ConvMod))
@@ -51,16 +25,43 @@ func main() {
 	ctx.RegisterNativeModule(new(stdlib.MathMod))
 	ctx.RegisterNativeModule(new(stdlib.OsMod))
 	ctx.RegisterNativeModule(new(stdlib.TimeMod))
-	mod, err := ctx.Load("./ago/test.ago")
+
+	mod, err := ctx.Load(modPath)
 	if err != nil {
 		fmt.Println("Couldn't load module", err.Error())
 		os.Exit(1)
 	}
-	val, err := mod.Run()
-	if err != nil {
-		fmt.Println("Error executing module", err.Error())
-		os.Exit(1)
+
+	return func() string {
+
+		val, err := mod.Run()
+		if err != nil {
+			fmt.Println("Error executing module", err.Error())
+			os.Exit(1)
+		}
+
+		return val.String()
 	}
-	fmt.Println(val)
-	fmt.Println("Done here.")
+}
+
+var ago = NewAgoraClosure("./ago/test.ago")
+
+func index(w http.ResponseWriter, r *http.Request) (string, int) {
+	return ago(), 200
+}
+
+func main() {
+	app := wedge.NewAppServer("8080", time.Second*2)
+
+	app.AddURLs(
+		wedge.URL("^/$", "index", index, 1),
+	)
+
+	go func() {
+		<-time.After(time.Second * 5)
+		fmt.Println("Swapping context")
+		ago = NewAgoraClosure("./ago/test2.ago")
+	}()
+
+	app.Run()
 }
