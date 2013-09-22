@@ -6,13 +6,35 @@ import (
 	"github.com/PuerkitoBio/agora/compiler"
 	"github.com/PuerkitoBio/agora/runtime"
 	"github.com/PuerkitoBio/agora/runtime/stdlib"
+	"io"
 	"net/http"
 	"os"
 	"time"
 )
 
+// HTTPResolver resolves agora packages over HTTP
+type HTTPResolver struct {
+	baseURL string
+}
+
+// Resolve a package over HTTP instead of on the local filesystem
+func (h *HTTPResolver) Resolve(modPath string) (io.Reader, error) {
+	if h.baseURL == "" {
+		h.baseURL = "http://localhost:8000"
+	}
+	resp, err := http.Get(h.baseURL + "/" + modPath)
+	if err != nil {
+		fmt.Println("Error in HTTPResolver getting module", err.Error())
+		return nil, err
+	}
+	return resp.Body, nil
+}
+
+// NewAgoraClosure loads a full agora context with the module passed in, then
+// returns a closure that calls the 'Run' method on the closure and returns the
+// result
 func NewAgoraClosure(modPath string) func() string {
-	ctx := runtime.NewCtx(new(runtime.FileResolver), new(compiler.Compiler))
+	ctx := runtime.NewCtx(new(HTTPResolver), new(compiler.Compiler))
 	f, _ := os.Open(modPath)
 	defer f.Close()
 
